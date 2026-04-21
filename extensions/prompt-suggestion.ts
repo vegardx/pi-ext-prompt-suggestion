@@ -82,6 +82,12 @@ export default function (pi: ExtensionAPI): void {
 			if (predictor) {
 				lines.push("");
 				lines.push(`last predict status: ${predictor.lastStatus}`);
+				if (predictor.lastAgentEndAt) {
+					const agoMs = Date.now() - predictor.lastAgentEndAt;
+					lines.push(`last agent_end fired: ${Math.round(agoMs / 1000)}s ago`);
+				} else {
+					lines.push(`last agent_end fired: never`);
+				}
 				if (predictor.lastAt) {
 					const agoMs = Date.now() - predictor.lastAt;
 					lines.push(`last predict at: ${Math.round(agoMs / 1000)}s ago`);
@@ -138,19 +144,48 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("agent_end", async (event, ctx) => {
-		if (!enabled) return;
-		if (!editor || !predictor) return;
-		if (!ctx.hasUI) return;
-		if (!ctx.isIdle()) return;
-		if (ctx.hasPendingMessages()) return;
-		if (ctx.ui.getEditorText() !== "") return;
-		if (!predictor.sawTurnInThisSession) return;
+		if (predictor) predictor.lastAgentEndAt = Date.now();
+		if (!enabled) {
+			if (predictor) predictor.lastStatus = "gate: disabled";
+			return;
+		}
+		if (!editor) {
+			if (predictor) predictor.lastStatus = "gate: no-editor";
+			return;
+		}
+		if (!predictor) return;
+		if (!ctx.hasUI) {
+			predictor.lastStatus = "gate: no-ui";
+			return;
+		}
+		if (!ctx.isIdle()) {
+			predictor.lastStatus = "gate: not-idle";
+			return;
+		}
+		if (ctx.hasPendingMessages()) {
+			predictor.lastStatus = "gate: pending-messages";
+			return;
+		}
+		if (ctx.ui.getEditorText() !== "") {
+			predictor.lastStatus = "gate: buffer-not-empty";
+			return;
+		}
+		if (!predictor.sawTurnInThisSession) {
+			predictor.lastStatus = "gate: no-real-turn-seen";
+			return;
+		}
 
 		const suggestion = await predictor.predict(event.messages);
 		if (!suggestion) return;
 		// Re-check after await: user may have started typing or submitted while we waited.
-		if (!ctx.isIdle()) return;
-		if (ctx.ui.getEditorText() !== "") return;
+		if (!ctx.isIdle()) {
+			predictor.lastStatus = "post: not-idle";
+			return;
+		}
+		if (ctx.ui.getEditorText() !== "") {
+			predictor.lastStatus = "post: buffer-not-empty";
+			return;
+		}
 
 		editor.setGhost(suggestion);
 	});

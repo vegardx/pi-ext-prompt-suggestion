@@ -27,6 +27,7 @@ export class Predictor {
 	public lastAt: number | null = null;
 	public lastTrimmedCount: number | null = null;
 	public lastErrorMessage: string | null = null;
+	public lastAgentEndAt: number | null = null;
 
 	private readonly ctx: ExtensionContext;
 	private abortController: AbortController | null = null;
