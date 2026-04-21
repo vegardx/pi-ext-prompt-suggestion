@@ -7,8 +7,12 @@ type AgentMessage = AgentEndEvent["messages"][number];
 // The prompt tells the model the limit; sanitize() enforces it if the model ignores.
 const SYSTEM_PROMPT =
 	"You predict what a user is about to say next in a conversation with an AI assistant. " +
-	"Reply with just the predicted next user message — no preamble, no quotes, no explanation. " +
-	"Keep it short (under 10 words).";
+	"Match the shape of the assistant's last message: " +
+	"if it ends with a yes/no question, predict 'Yes' or 'No' (whichever is more plausible); " +
+	"if it offers a concrete choice, predict the most likely choice; " +
+	"if it asks a short clarifying question, predict a short direct answer; " +
+	"otherwise predict a natural next user message. " +
+	"Reply with just the predicted message — no preamble, no quotes, no explanation. Under 10 words.";
 
 const MAX_CONTEXT_MESSAGES = 6;
 const MAX_OUTPUT_TOKENS = 500;
