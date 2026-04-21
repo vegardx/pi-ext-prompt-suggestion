@@ -33,13 +33,16 @@ export class GhostEditor extends CustomEditor {
 			super.handleInput(data);
 			return;
 		}
-		if (matchesKey(data, "enter") && this.getText().length === 0) {
+		// Tab on empty buffer + ghost: populate the buffer and clear the ghost.
+		// Do NOT forward to super — we consume Tab here. User presses Enter next to submit.
+		if (matchesKey(data, "tab") && this.getText().length === 0) {
 			const suggestion = this.ghost;
 			this.ghost = "";
 			this.setText(suggestion);
-			super.handleInput(data);
+			this.tui.requestRender();
 			return;
 		}
+		// Any other key clears the ghost and delegates normally.
 		this.ghost = "";
 		this.tui.requestRender();
 		super.handleInput(data);

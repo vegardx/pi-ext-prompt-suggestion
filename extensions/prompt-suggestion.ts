@@ -1,8 +1,38 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { mkdirSync } from "node:fs";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { GhostEditor } from "./ghost-editor.js";
 import { parseModelSpec, Predictor } from "./predictor.js";
 
 const DEFAULT_MODEL = "anthropic/claude-haiku-4-5-20251001";
+const CONFIG_PATH = join(homedir(), ".pi", "agent", "prompt-suggestion.json");
+
+interface PersistedConfig {
+	modelSpec?: string;
+	enabled?: boolean;
+}
+
+function loadPersistedConfig(): PersistedConfig {
+	try {
+		const raw = readFileSync(CONFIG_PATH, "utf8");
+		const parsed = JSON.parse(raw);
+		if (typeof parsed === "object" && parsed !== null) return parsed as PersistedConfig;
+	} catch {
+		// File missing or unreadable — fine, caller uses defaults.
+	}
+	return {};
+}
+
+function savePersistedConfig(config: PersistedConfig): void {
+	try {
+		mkdirSync(dirname(CONFIG_PATH), { recursive: true });
+		writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+	} catch {
+		// Best-effort; persistence is an ergonomic improvement, not load-bearing.
+	}
+}
 
 export default function (pi: ExtensionAPI): void {
 	pi.registerFlag("suggest", {
@@ -19,6 +49,13 @@ export default function (pi: ExtensionAPI): void {
 	let editor: GhostEditor | undefined;
 	let predictor: Predictor | undefined;
 	let enabled = true;
+
+	const persist = () => {
+		savePersistedConfig({
+			modelSpec: predictor?.modelSpec,
+			enabled,
+		});
+	};
 
 	const OFF_OPTION = "(off — disable suggestions)";
 
@@ -46,12 +83,14 @@ export default function (pi: ExtensionAPI): void {
 				enabled = false;
 				predictor?.cancel();
 				editor?.clearGhost();
+				persist();
 				ctx.ui.notify("Prompt suggestions: off", "info");
 				return;
 			}
 			const chosen = picked.replace(/ \(current\)$/, "");
 			predictor?.setModelSpec(chosen);
 			enabled = true;
+			persist();
 			ctx.ui.notify(`Prompt suggestions: on (${chosen})`, "info");
 		},
 	});
@@ -94,6 +133,7 @@ export default function (pi: ExtensionAPI): void {
 				}
 				if (predictor.lastStopReason) lines.push(`last stopReason: ${predictor.lastStopReason}`);
 				if (predictor.lastTrimmedCount !== null) lines.push(`last trimmed count: ${predictor.lastTrimmedCount}`);
+				if (predictor.lastContentTypes) lines.push(`last content types: ${predictor.lastContentTypes}`);
 				if (predictor.lastRawText !== null) {
 					lines.push(`last raw (trunc 200): ${JSON.stringify(predictor.lastRawText)}`);
 				}
@@ -107,10 +147,26 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", (_event, ctx) => {
+		const persisted = loadPersistedConfig();
+
+		// Enabled precedence: persisted > flag > default(true).
+		// Flag is checked via user-explicit presence; a bare default(true) shouldn't
+		// override the persisted off-state.
 		const flagEnabled = pi.getFlag("suggest");
-		enabled = flagEnabled !== false;
+		if (typeof persisted.enabled === "boolean") {
+			enabled = persisted.enabled;
+		} else {
+			enabled = flagEnabled !== false;
+		}
+
+		// Model precedence: persisted > flag > DEFAULT_MODEL.
 		const flagModel = pi.getFlag("suggest-model");
-		const modelSpec = typeof flagModel === "string" && flagModel ? flagModel : DEFAULT_MODEL;
+		const modelSpec =
+			persisted.modelSpec && typeof persisted.modelSpec === "string"
+				? persisted.modelSpec
+				: typeof flagModel === "string" && flagModel
+					? flagModel
+					: DEFAULT_MODEL;
 
 		predictor = new Predictor(modelSpec, ctx);
 		editor = undefined;
@@ -158,10 +214,10 @@ export default function (pi: ExtensionAPI): void {
 			predictor.lastStatus = "gate: no-ui";
 			return;
 		}
-		if (!ctx.isIdle()) {
-			predictor.lastStatus = "gate: not-idle";
-			return;
-		}
+		// Intentionally NOT checking ctx.isIdle() here — agent_end means the agent
+		// ended; Pi's internal streaming flag may not flip until after this handler
+		// runs, so isIdle() is racy at this point. getEditorText() below is the real
+		// signal for "user has started typing".
 		if (ctx.hasPendingMessages()) {
 			predictor.lastStatus = "gate: pending-messages";
 			return;
@@ -177,11 +233,9 @@ export default function (pi: ExtensionAPI): void {
 
 		const suggestion = await predictor.predict(event.messages);
 		if (!suggestion) return;
-		// Re-check after await: user may have started typing or submitted while we waited.
-		if (!ctx.isIdle()) {
-			predictor.lastStatus = "post: not-idle";
-			return;
-		}
+		// Post-await: if the user started typing during the Haiku call, don't paint
+		// over their in-progress input. isIdle() is skipped here for the same
+		// racy-flag reason as the pre-check above.
 		if (ctx.ui.getEditorText() !== "") {
 			predictor.lastStatus = "post: buffer-not-empty";
 			return;
