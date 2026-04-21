@@ -20,48 +20,66 @@ export default function (pi: ExtensionAPI): void {
 	let predictor: Predictor | undefined;
 	let enabled = true;
 
-	pi.registerCommand("suggest", {
-		description: "Toggle prompt suggestions: /suggest on | off",
-		handler: async (args, ctx) => {
-			const arg = args.trim().toLowerCase();
-			if (arg === "" || arg === "on") {
-				enabled = true;
-			} else if (arg === "off") {
-				enabled = false;
-				predictor?.cancel();
-				editor?.clearGhost();
-			} else {
-				ctx.ui.notify(`Usage: /suggest on|off (got "${arg}")`, "warning");
-				return;
-			}
-			ctx.ui.notify(`Prompt suggestions: ${enabled ? "on" : "off"}`, "info");
-		},
-	});
+	const OFF_OPTION = "(off — disable suggestions)";
 
-	pi.registerCommand("suggest-model", {
-		description: "Set suggestion model: /suggest-model <provider>/<modelId>",
-		handler: async (args, ctx) => {
-			const spec = args.trim();
-			if (!spec) {
-				const current = predictor?.modelSpec ?? "(unset)";
-				ctx.ui.notify(`Current suggestion model: ${current}`, "info");
-				return;
-			}
-			const parsed = parseModelSpec(spec);
-			if (!parsed) {
+	pi.registerCommand("suggest", {
+		description: "Pick a suggestion model or turn off suggestions",
+		handler: async (_args, ctx) => {
+			const available = ctx.modelRegistry.getAvailable();
+			if (available.length === 0) {
 				ctx.ui.notify(
-					"Format: provider/modelId (e.g. anthropic/claude-haiku-4-5-20251001)",
+					"No models have configured auth. Set an API key first (e.g. ANTHROPIC_API_KEY) or run /login.",
 					"warning",
 				);
 				return;
 			}
-			const model = ctx.modelRegistry.find(parsed.provider, parsed.modelId);
-			if (!model) {
-				ctx.ui.notify(`Model ${spec} not found in registry`, "error");
+			const current = predictor?.modelSpec ?? "";
+			const modelOptions = available.map((m) => {
+				const label = `${m.provider}/${m.id}`;
+				return enabled && label === current ? `${label} (current)` : label;
+			});
+			const options = [...modelOptions, OFF_OPTION];
+			const picked = await ctx.ui.select("Suggestions:", options);
+			if (!picked) return;
+
+			if (picked === OFF_OPTION) {
+				enabled = false;
+				predictor?.cancel();
+				editor?.clearGhost();
+				ctx.ui.notify("Prompt suggestions: off", "info");
 				return;
 			}
-			predictor?.setModelSpec(spec);
-			ctx.ui.notify(`Suggestion model: ${spec}`, "info");
+			const chosen = picked.replace(/ \(current\)$/, "");
+			predictor?.setModelSpec(chosen);
+			enabled = true;
+			ctx.ui.notify(`Prompt suggestions: on (${chosen})`, "info");
+		},
+	});
+
+	pi.registerCommand("suggest-status", {
+		description: "Show diagnostic state of prompt suggestions",
+		handler: async (_args, ctx) => {
+			const lines: string[] = [];
+			lines.push(`enabled: ${enabled}`);
+			lines.push(`editor installed: ${editor ? "yes" : "no"}`);
+			lines.push(`predictor: ${predictor ? "yes" : "no"}`);
+			lines.push(`seen real turn: ${predictor?.sawTurnInThisSession ? "yes" : "no"}`);
+			const spec = predictor?.modelSpec ?? "(unset)";
+			lines.push(`model spec: ${spec}`);
+			const parsed = predictor ? parseModelSpec(predictor.modelSpec) : null;
+			if (parsed) {
+				const model = ctx.modelRegistry.find(parsed.provider, parsed.modelId);
+				lines.push(`model in registry: ${model ? "yes" : "no"}`);
+				if (model) {
+					lines.push(`configured auth: ${ctx.modelRegistry.hasConfiguredAuth(model) ? "yes" : "no"}`);
+				}
+			} else if (predictor) {
+				lines.push(`model in registry: parse-error`);
+			}
+			lines.push(`idle: ${ctx.isIdle() ? "yes" : "no"}`);
+			lines.push(`pending messages: ${ctx.hasPendingMessages() ? "yes" : "no"}`);
+			lines.push(`editor buffer empty: ${ctx.ui.getEditorText() === "" ? "yes" : "no"}`);
+			ctx.ui.notify(`prompt-suggestion status:\n${lines.join("\n")}`, "info");
 		},
 	});
 
