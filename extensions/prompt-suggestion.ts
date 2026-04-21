@@ -79,6 +79,23 @@ export default function (pi: ExtensionAPI): void {
 			lines.push(`idle: ${ctx.isIdle() ? "yes" : "no"}`);
 			lines.push(`pending messages: ${ctx.hasPendingMessages() ? "yes" : "no"}`);
 			lines.push(`editor buffer empty: ${ctx.ui.getEditorText() === "" ? "yes" : "no"}`);
+			if (predictor) {
+				lines.push("");
+				lines.push(`last predict status: ${predictor.lastStatus}`);
+				if (predictor.lastAt) {
+					const agoMs = Date.now() - predictor.lastAt;
+					lines.push(`last predict at: ${Math.round(agoMs / 1000)}s ago`);
+				}
+				if (predictor.lastStopReason) lines.push(`last stopReason: ${predictor.lastStopReason}`);
+				if (predictor.lastTrimmedCount !== null) lines.push(`last trimmed count: ${predictor.lastTrimmedCount}`);
+				if (predictor.lastRawText !== null) {
+					lines.push(`last raw (trunc 200): ${JSON.stringify(predictor.lastRawText)}`);
+				}
+				if (predictor.lastSanitized !== null) {
+					lines.push(`last sanitized: ${JSON.stringify(predictor.lastSanitized)}`);
+				}
+				if (predictor.lastErrorMessage) lines.push(`last error: ${predictor.lastErrorMessage}`);
+			}
 			ctx.ui.notify(`prompt-suggestion status:\n${lines.join("\n")}`, "info");
 		},
 	});

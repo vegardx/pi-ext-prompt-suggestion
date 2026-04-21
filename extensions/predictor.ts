@@ -20,6 +20,13 @@ const MAX_SUGGESTION_WORDS = 10;
 export class Predictor {
 	public modelSpec: string;
 	public sawTurnInThisSession = false;
+	public lastStatus: string = "never-run";
+	public lastStopReason: string | null = null;
+	public lastRawText: string | null = null;
+	public lastSanitized: string | null = null;
+	public lastAt: number | null = null;
+	public lastTrimmedCount: number | null = null;
+	public lastErrorMessage: string | null = null;
 
 	private readonly ctx: ExtensionContext;
 	private abortController: AbortController | null = null;
@@ -37,6 +44,11 @@ export class Predictor {
 		this.lastMessageKey = null;
 		this.lastSuggestion = null;
 		this.notifiedReasons.clear();
+		this.lastStatus = "never-run";
+		this.lastStopReason = null;
+		this.lastRawText = null;
+		this.lastSanitized = null;
+		this.lastErrorMessage = null;
 	}
 
 	cancel(): void {
@@ -49,20 +61,35 @@ export class Predictor {
 	async predict(messages: AgentMessage[]): Promise<string | null> {
 		const key = messageKey(messages);
 		if (key && key === this.lastMessageKey && this.lastSuggestion) {
+			this.lastStatus = "cache-hit";
+			this.lastAt = Date.now();
 			return this.lastSuggestion;
 		}
 
 		const parsed = parseModelSpec(this.modelSpec);
-		if (!parsed) return null;
+		if (!parsed) {
+			this.lastStatus = "model-spec-parse-error";
+			this.lastAt = Date.now();
+			return null;
+		}
 		const model = this.ctx.modelRegistry.find(parsed.provider, parsed.modelId);
-		if (!model) return null;
+		if (!model) {
+			this.lastStatus = "model-not-in-registry";
+			this.lastAt = Date.now();
+			return null;
+		}
 
 		const auth = await this.ctx.modelRegistry.getApiKeyAndHeaders(model);
 		if (!auth.ok) {
+			this.lastStatus = "auth-error";
+			this.lastErrorMessage = auth.error;
+			this.lastAt = Date.now();
 			this.notifyOnce("auth-error", "prompt-suggestion: authentication failed; suggestions disabled");
 			return null;
 		}
 		if (!auth.apiKey) {
+			this.lastStatus = "missing-api-key";
+			this.lastAt = Date.now();
 			this.notifyOnce(
 				"missing-key",
 				`prompt-suggestion: no API key for ${this.modelSpec}; suggestions disabled`,
@@ -71,7 +98,12 @@ export class Predictor {
 		}
 
 		const trimmed = trimMessages(messages, MAX_CONTEXT_MESSAGES, MAX_CHARS_PER_MESSAGE);
-		if (trimmed.length === 0) return null;
+		this.lastTrimmedCount = trimmed.length;
+		if (trimmed.length === 0) {
+			this.lastStatus = "trimmed-empty";
+			this.lastAt = Date.now();
+			return null;
+		}
 
 		this.cancel();
 		const controller = new AbortController();
@@ -88,23 +120,49 @@ export class Predictor {
 					maxTokens: MAX_OUTPUT_TOKENS,
 				},
 			);
-			if (controller.signal.aborted) return null;
+			this.lastAt = Date.now();
+			this.lastStopReason = response.stopReason ?? null;
+			if (controller.signal.aborted) {
+				this.lastStatus = "aborted";
+				return null;
+			}
 
 			const rawText = response.content
 				.filter((c): c is { type: "text"; text: string } => c.type === "text")
 				.map((c) => c.text)
 				.join("");
+			this.lastRawText = rawText.slice(0, 200);
+
+			if (!rawText) {
+				this.lastStatus = `empty-response (stopReason=${response.stopReason ?? "?"})`;
+				return null;
+			}
+
 			const cleaned = sanitize(rawText);
-			if (!cleaned) return null;
+			this.lastSanitized = cleaned;
+			if (!cleaned) {
+				this.lastStatus = "empty-after-sanitize";
+				return null;
+			}
 
 			this.lastMessageKey = key;
 			this.lastSuggestion = cleaned;
+			this.lastStatus = "success";
 			this.notifiedReasons.delete("auth-error");
 			this.notifiedReasons.delete("request-failed");
 			return cleaned;
 		} catch (err) {
-			if (controller.signal.aborted) return null;
-			if (err instanceof Error && err.name === "AbortError") return null;
+			this.lastAt = Date.now();
+			if (controller.signal.aborted) {
+				this.lastStatus = "aborted";
+				return null;
+			}
+			if (err instanceof Error && err.name === "AbortError") {
+				this.lastStatus = "aborted";
+				return null;
+			}
+			this.lastStatus = "request-failed";
+			this.lastErrorMessage = err instanceof Error ? err.message : String(err);
 			this.notifyOnce("request-failed", "prompt-suggestion: suggestion request failed");
 			return null;
 		} finally {
