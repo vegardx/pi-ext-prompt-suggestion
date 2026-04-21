@@ -71,9 +71,8 @@ not a command-safety filter.
 
 | Command | Effect |
 |---|---|
-| `/suggest on` / `/suggest off` | Toggle for the rest of the session |
-| `/suggest-model` | Show the current model |
-| `/suggest-model <provider>/<id>` | Swap model (validated against Pi's registry) |
+| `/suggest` | Interactive picker: list of models with configured auth, plus an "off" option |
+| `/suggest-status` | Dump the extension's runtime state for debugging |
 
 ## How it works
 
