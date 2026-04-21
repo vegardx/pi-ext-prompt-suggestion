@@ -3,8 +3,9 @@
 Claude-Code-style inline ghost-text prompt suggestions for [Pi](https://pi.dev).
 
 After Pi finishes responding, a secondary model (Haiku 4.5 by default) predicts
-your next message and renders it as dim ghost text inside the input. Press Enter
-to accept and submit.
+your next message and renders it as dim ghost text inside the input. Press Tab
+to accept the suggestion into the buffer, then Enter to submit. Any other key
+dismisses the suggestion.
 
 ## Install
 
@@ -32,17 +33,18 @@ silently thereafter — it will not spam on every turn.
 
 ## Scope and security
 
-This extension only renders predictions and submits the accepted one. It does
-**not** filter potentially harmful model output. Because Enter accepts *and*
-submits in one keystroke, a malicious prediction (e.g. from indirect prompt
-injection in conversation content) can be routed straight to Pi's agent,
-including Pi's `!`-prefixed bash execution and `/`-prefixed slash commands.
+This extension only renders predictions and writes the accepted one into the
+buffer. It does **not** filter potentially harmful model output. Tab accepts
+into the buffer, Enter submits — so you always get a visual confirmation step
+between the prediction and Pi's agent. Still, if your workflow involves
+untrusted content (fetched web pages, external PRs, third-party READMEs), a
+malicious prediction could show up as ghost text and be Tab-accepted by
+muscle memory.
 
 Command-safety belongs in a separate, composable extension that intercepts
 submissions via `pi.on("input", ...)` and rejects or rewrites dangerous
 patterns. This extension stays narrowly focused on the prediction UX; layer
-a safety extension on top if your workflow involves untrusted content
-(fetched web pages, external PRs, third-party READMEs, etc.).
+a safety extension on top if you want hard guarantees.
 
 For display integrity, `sanitize()` strips ANSI escapes, C0/C1 control
 characters, and Unicode bidi/format overrides from the suggestion before it
@@ -53,9 +55,9 @@ not a command-safety filter.
 
 - Fires once per turn, on the `agent_end` event, when the input is empty and
   Pi is idle. Never fires while you are typing.
-- Renders a dim suffix inside the editor input. Enter accepts and submits.
-  Any other keystroke dismisses the suggestion and cancels the in-flight
-  prediction.
+- Renders a dim suffix inside the editor input. Tab accepts the suggestion into
+  the buffer (does not submit); Enter submits the buffer as normal. Any other
+  keystroke dismisses the suggestion and cancels the in-flight prediction.
 - Suppressed during session resume (the first synthetic `agent_end` after
   loading a prior session). Comes back on the next real turn.
 - Suppressed in non-interactive modes (`pi -p`, RPC).
