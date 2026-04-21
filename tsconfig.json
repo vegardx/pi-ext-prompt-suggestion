@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noImplicitAny": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "declaration": false,
+    "noEmit": true
+  },
+  "include": ["extensions/**/*.ts", "test/**/*.ts"]
+}

@@ -1,0 +1,34 @@
+{
+  "name": "pi-ext-prompt-suggestion",
+  "version": "0.1.0",
+  "description": "Claude-Code-style inline ghost-text prompt suggestions for Pi",
+  "keywords": ["pi-package", "pi-extension"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vegardx/pi-ext-prompt-suggestion.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "pi": {
+    "extensions": ["extensions/prompt-suggestion.ts"]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-ai": "^0.68.0",
+    "@mariozechner/pi-coding-agent": "^0.68.0",
+    "@mariozechner/pi-tui": "^0.68.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}
